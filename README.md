@@ -13,7 +13,7 @@ helm repo add secrets-store-csi-driver https://kubernetes-sigs.github.io/secrets
 helm repo update
 ```
 ## 3. Create Static PVC's
-This application would store sensitive data, and i didn't want to lose abuot my data, so i will using static data.
+This application would store sensitive data, and i didn't want to lost any data, so i will using static pvc.
 ```sh
 kubectl apply -f manifest/openbao-pvc.yaml
 ```
