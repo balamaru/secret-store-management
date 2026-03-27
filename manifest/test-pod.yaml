@@ -1,0 +1,69 @@
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: openbao-myapp-secrets
+  namespace: default
+spec:
+  provider: vault
+  secretObjects:
+  - secretName: myapp-env-secret
+    type: Opaque
+    data:
+    - objectName: app-url
+      key: APP_URL
+    - objectName: app-user
+      key: APP_USER
+    - objectName: app-password
+      key: APP_PASSWORD
+  parameters:
+    vaultAddress: "http://openbao.openbao.svc.cluster.local:8200"
+    roleName: "myapp-role"
+    objects: |
+      - objectName: "app-url"
+        secretPath: "secret/data/production/myapp"
+        secretKey: "APP_URL"
+      - objectName: "app-user"
+        secretPath: "secret/data/production/myapp"
+        secretKey: "APP_USER"
+      - objectName: "app-password"
+        secretPath: "secret/data/production/myapp"
+        secretKey: "APP_PASSWORD"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: openbao-myapp-test
+  namespace: default
+spec:
+  serviceAccountName: openbao-csi-sa
+  containers:
+  - name: app
+    image: busybox:latest
+    command: ["sleep", "3600"]
+    env:
+    - name: APP_URL
+      valueFrom:
+        secretKeyRef:
+          name: myapp-env-secret
+          key: APP_URL
+    - name: APP_USER
+      valueFrom:
+        secretKeyRef:
+          name: myapp-env-secret
+          key: APP_USER
+    - name: APP_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: myapp-env-secret
+          key: APP_PASSWORD
+    volumeMounts:
+    - name: vault-secrets
+      mountPath: "/mnt/secrets"
+      readOnly: true
+  volumes:
+  - name: vault-secrets
+    csi:
+      driver: secrets-store.csi.k8s.io
+      readOnly: true
+      volumeAttributes:
+        secretProviderClass: "openbao-myapp-secrets"

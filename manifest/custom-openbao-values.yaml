@@ -1,0 +1,215 @@
+# custom-openbao-values.yaml
+# Override values untuk OpenBao dengan:
+# - Image: balamaru/openbao-hsm-softhsm:2.5.1
+# - Storage: Raft (integrated)
+# - Seal: PKCS11 + SoftHSM2 (auto-unseal)
+# - Single node (RKE2 control-plane)
+
+global:
+  enabled: true
+  tlsDisable: true
+
+# Disable injector — tidak dibutuhkan, bakal menggunakan CSI Driver
+injector:
+  enabled: false
+
+# CSI Provider — enable untuk integrasi dengan secrets-store-csi-driver
+csi:
+  enabled: true
+
+server:
+  # Custom image dengan SoftHSM2 built-in
+  image:
+    registry: "docker.io"
+    repository: "balamaru/openbao-hsm-softhsm"
+    tag: "2.5.1"
+    pullPolicy: IfNotPresent
+
+  # Resources
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+  # Liveness probe: toleran saat sealed (penting untuk PKCS11
+  livenessProbe:
+    enabled: true
+    path: "/v1/sys/health?standbyok=true&sealedcode=200&uninitcode=200"
+    port: 8200
+    failureThreshold: 10
+    initialDelaySeconds: 120
+    periodSeconds: 10
+    successThreshold: 1
+    timeoutSeconds: 5
+
+  # Readiness probe
+  readinessProbe:
+    enabled: true
+    path: "/v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204"
+    port: 8200
+    failureThreshold: 2
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    successThreshold: 1
+    timeoutSeconds: 3
+
+  # Tolerasi agar bisa deploy di control-plane node
+  tolerations:
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
+    - key: "node-role.kubernetes.io/master"
+      operator: "Exists"
+      effect: "NoSchedule"
+
+  # Affinity: override default (single node tidak butuh anti-affinity)
+  affinity: ""
+
+  # ENV: PIN SoftHSM dari Kubernetes Secret
+  extraSecretEnvironmentVars:
+    - envName: BAO_HSM_PIN
+      secretName: openbao-hsm-pin
+      secretKey: pin
+
+  extraEnvironmentVars:
+    SOFTHSM2_CONF: /softhsm2/softhsm2.conf
+
+  # initContainer: init SoftHSM token sebelum OpenBao start
+  extraInitContainers:
+    - name: softhsm-init
+      image: docker.io/balamaru/openbao-hsm-softhsm:2.5.1
+      command:
+        - /bin/sh
+        - -ec
+        - |
+          export SOFTHSM2_CONF=/softhsm2/softhsm2.conf
+
+          # Buat direktori dan config SoftHSM
+          mkdir -p /softhsm2/tokens
+          cat > /softhsm2/softhsm2.conf <<CONF
+          directories.tokendir = /softhsm2/tokens
+          objectstore.backend = file
+          log.level = INFO
+          CONF
+
+          echo "=== Checking existing SoftHSM token ==="
+          EXISTING=$(softhsm2-util --show-slots 2>/dev/null | grep "OpenBao" || true)
+
+          if [ -z "$EXISTING" ]; then
+            echo "=== Token tidak ada, membuat baru ==="
+
+            PIN=$(cat /openbao/hsm-pin/pin)
+            SO_PIN=$(cat /openbao/hsm-pin/so-pin)
+
+            softhsm2-util --init-token \
+              --slot 0 \
+              --label "OpenBao" \
+              --so-pin "$SO_PIN" \
+              --pin "$PIN"
+
+            echo "=== Generating RSA-4096 key pair ==="
+            pkcs11-tool \
+              --module /usr/lib/softhsm/libsofthsm2.so \
+              --token-label "OpenBao" \
+              --so-pin "$SO_PIN" \
+              --pin "$PIN" \
+              --keypairgen \
+              --key-type rsa:4096 \
+              --label "bao-root-key" \
+              --usage-decrypt \
+              --usage-sign
+
+            echo "=== Token initialized successfully ==="
+          else
+            echo "=== Token sudah ada, skip init ==="
+          fi
+
+          echo "=== Slot info ==="
+          softhsm2-util --show-slots
+      volumeMounts:
+        - name: softhsm-data
+          mountPath: /softhsm2
+        - name: hsm-pin
+          mountPath: /openbao/hsm-pin
+          readOnly: true
+
+  # Volumes tambahan untuk SoftHSM
+  volumes:
+    - name: softhsm-data
+      persistentVolumeClaim:
+        claimName: softhsm-data-openbao-0
+    - name: hsm-pin
+      secret:
+        secretName: openbao-hsm-pin
+
+  volumeMounts:
+    - name: softhsm-data
+      mountPath: /softhsm2
+
+  # Standalone mode dengan Raft storage + PKCS11 seal
+  standalone:
+    enabled: true
+    config: |
+      ui = true
+
+      listener "tcp" {
+        tls_disable     = 1
+        address         = "[::]:8200"
+        cluster_address = "[::]:8201"
+      }
+
+      storage "raft" {
+        path    = "/openbao/data"
+        node_id = "openbao-0"
+      }
+
+      # PKCS11 auto-unseal via SoftHSM2
+      seal "pkcs11" {
+        lib           = "/usr/lib/softhsm/libsofthsm2.so"
+        token_label   = "OpenBao"
+        pin           = "env://BAO_HSM_PIN"
+        key_label     = "bao-root-key"
+        rsa_oaep_hash = "sha1"
+        generate_key  = "false"
+      }
+
+      service_registration "kubernetes" {}
+
+  ha:
+    enabled: false
+
+  # Data storage (Raft)
+  dataStorage:
+    enabled: true
+    size: 16Gi
+    mountPath: "/openbao/data"
+    storageClass: local-storage
+    accessMode: ReadWriteMany
+
+  # Audit storage
+  auditStorage:
+    enabled: true
+    size: 2Gi
+    mountPath: "/openbao/audit"
+    storageClass: local-storage
+    accessMode: ReadWriteMany
+
+  serviceAccount:
+    create: true
+    serviceDiscovery:
+      enabled: true
+
+  authDelegator:
+    enabled: true
+
+# UI expose via NodePort
+ui:
+  enabled: true
+  publishNotReadyAddresses: true
+  serviceType: "NodePort"
+  serviceNodePort: 31200
+  externalPort: 8200
+  targetPort: 8200

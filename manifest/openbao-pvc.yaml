@@ -1,0 +1,85 @@
+---
+#kind: StorageClass
+#apiVersion: storage.k8s.io/v1
+#metadata:
+#  name: local-storage
+#provisioner: kubernetes.io/no-provisioner
+#volumeBindingMode: WaitForFirstConsumer
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: audit-openbao-0
+  namespace: openbao
+  labels:
+    type: local
+spec:
+  storageClassName: local-storage
+  claimRef:
+     namespace: openbao
+     name: audit-openbao-0
+  capacity:
+    storage: 16Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: "/var/lib/rancher/storage/core-openbao/audit"
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: data-openbao-0
+  namespace: openbao
+  labels:
+    type: local
+spec:
+  storageClassName: local-storage
+  claimRef:
+     namespace: openbao
+     name: data-openbao-0
+  capacity:
+    storage: 16Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: "/var/lib/rancher/storage/core-openbao/data"
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: softhsm-data-openbao-0
+  namespace: openbao
+  labels:
+    type: local
+spec:
+  storageClassName: local-storage
+  claimRef:
+     namespace: openbao
+     name: softhsm-data-openbao-0
+  capacity:
+    storage: 16Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: "/var/lib/rancher/storage/core-openbao/softhsm"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: softhsm-data-openbao-0
+  namespace: openbao
+spec:
+  storageClassName: local-storage
+  volumeName: softhsm-data-openbao-0
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 16Gi
