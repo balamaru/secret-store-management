@@ -1,24 +1,27 @@
 # Secret Store Management with OpenBao
 OpenBao is forking project of Hashicorp Vault, OpenBao enable auto unsealing PKCS11 key where Hashicorp Vault required Vault Enterprise to using this feature. Let's setup the OpenBao (for minimun and easy clean up i would use container/kubernetes based).
 
-## 1. Prequesites
+## 1. Architecture
+<p align="center"> <img src="images/architecture.png"> </p>
+
+## 2. Prequesites
 - Kubernetes installed and configured
 - Access to kubectl
 - Helm installed and configured
 
-## 2. Add Helm Repository
+## 3. Add Helm Repository
 ```sh
 helm repo add openbao https://openbao.github.io/openbao-helm
 helm repo add secrets-store-csi-driver https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts
 helm repo update
 ```
-## 3. Create Static PVC's
+## 4. Create Static PVC's
 This application would store sensitive data, and i didn't want to lost any data, so i will using static pvc.
 ```sh
 kubectl apply -f manifest/openbao-pvc.yaml
 ```
 
-## 4. Install OpenBao
+## 5. Install OpenBao
 ```sh
 # Create namespace and hsm pin in secret
 kubectl create ns openbao
@@ -36,7 +39,7 @@ openbao-0                    1/1     Running   0          4h7m
 openbao-csi-provider-zg6m8   2/2     Running   0          4h7m
 ```
 
-## 5. Initialized OpenBao
+## 6. Initialized OpenBao
 ```sh
 kubectl exec -n openbao openbao-0 -- bao operator init -recovery-shares=3 -recovery-threshold=2 -format=json > openbao-init-pkcs11.json
 
@@ -54,12 +57,12 @@ kubectl exec -n openbao openbao-0 -- \
   kubernetes_host="https://kubernetes.default.svc.cluster.local:443" \
   disable_iss_validation=true
 ```
-## 6. Install CSI Secret Driver
+## 7. Install CSI Secret Driver
 Install CSI Driver with helm chart
 ```sh
 helm install csi-secrets-store secrets-store-csi-driver/secrets-store-csi-driver --namespace kube-system --set syncSecret.enabled=true --set enableSecretRotation=true --set rotationPollInterval=60s
 ```
-## 7. Testing
+## 8. Testing
 Lemme use random data credentials for examples
 
 - Store credentials in openbao
@@ -112,3 +115,8 @@ kubectl apply -f manifest/test-pod.yaml
 kubectl exec openbao-myapp-test -- ls -la /mnt/secrets/
 kubectl exec openbao-myapp-test -- env | grep -E "APP_URL|APP_USER|APP_PASSWORD"
 ```
+
+## 9. References
+- [Openbao Official Documentation](https://openbao.org/docs/)
+- [Getting Started with OpenBao/Vault](https://labs.iximiuz.com/tutorials/openbao-vault-getting-started-e783c133)
+- [The Guide to OpenBao](https://blog.stderr.at/openshift-platform/security/secrets-management/openbao/2026-02-11-openbao-part-1-introduction/)add
