@@ -1,5 +1,6 @@
 # External OpenBao
 <p align="center"> <img src="images/external.png"> </p>
+
 ## 1. Prequesites
 - Installed Openbao external of kubernetes cluster
 
