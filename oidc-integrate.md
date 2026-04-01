@@ -1,4 +1,5 @@
 # Integrate OpenBao with OIDC Provider
+<p align="center"> <img src="images/oidc.png"> </p>
 In case we having a lot of teams or users, os we must to give minimum access (no root access/admin access) to separate roles in OpenBao.
 
 ## 1. Prequesites
